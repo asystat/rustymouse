@@ -5,25 +5,48 @@ const Weapon = require('./weapon.js');
 const Mouse = require('./arduino_mouse.js');
 
 
-let python = new Weapon("python", "single", [[0,113]]);
+
+let wp_python = new Weapon("python", "semiautomatic", [[0,113]], (72/113), 0); 
+let wp_ak = new Weapon("AK47", "automatic", [[-2,11], [-4,11], [-11,11], [-7,11],[-10,10],[0,3], [10,3], [3,5], [10,7], [10,4],[10,4], [8,6], [5,5], [0,5]], 2, 124);
+let weapon = wp_python;
+
+
 
 const { exec } = require('child_process');
 
 var rustymouse_activated = false;
-var up = true;
+var rustymouse_activation_time = 100n;
+
+var lup = true;
+var rup = true;
 var mouseMovement;
+var weaponTimer = null;
+var mousePos = [0,0]
 
 ioHook.on("mousemove", event => {
-  //console.log(event);
-  // result: {type: 'mousemove',x: 700,y: 400}
+  console.log(event);
+  mousePos = [event.x, event.y];
 });
+
 ioHook.on("keydown", event => {
     //console.log(event);
-    if(event.rawcode == 192){
+    if(event.rawcode == 192){ //toggle rustymouse activation
       rustymouse_activated = !rustymouse_activated;
+      rustymouse_activation_time = process.hrtime.bigint();
       console.log(`Rustymouse ${rustymouse_activated?'ENABLED':'DISABLED'}`);
     }
-    // result: {keychar: 'f', keycode: 19, rawcode: 15, type: 'keypress'}
+
+    if(process.hrtime.bigint() - rustymouse_activation_time < 1000000000n){
+      if(event.rawcode == 49){// 1
+        weapon = wp_python;
+        rustymouse_activated = true;
+      }else if(event.rawcode == 50){// 2
+        weapon = wp_ak;
+        rustymouse_activated = true;
+      } 
+    }
+
+
   });
 
   ioHook.on("mousedown", event => {
@@ -32,42 +55,55 @@ ioHook.on("keydown", event => {
     
     if(event.button == 1 && rustymouse_activated){
 
-      mouseMovement = [0,0];
-      if(up){
-          mouseMovement = python.nextStep(true);
-          up = false;
-      }else{
-          mouseMovement = python.nextStep(false);
-      }
+      handleRecoil(true);
 
-      console.log(mouseMovement);
-      
-
-      if(!!mouseMovement){
-          console.log(`mouse will move to [${event.x}, ${event.y}] + [${mouseMovement[0]} ${mouseMovement[1]}]`);
-          //mouseMovement[0] += event.x;
-          //mouseMovement[1] += event.y;
-          Mouse.sendMouseDelta(mouseMovement[0],mouseMovement[1]);
-          
-      }
+    }else  if(event.button == 2){
+        rup = false;
     }
-    // result: {keychar: 'f', keycode: 19, rawcode: 15, type: 'keypress'}`
+
   });
 
   ioHook.on("mouseup", event => {
     console.log(event);
-    // result: {keychar: 'f', keycode: 19, rawcode: 15, type: 'keypress'}
-    mouseMovement = [0,0];
-    up = true;
+    if(event.button == 1){
+      lup = true;
+      clearTimeout(weaponTimer);
+    }
+    else if(event.button == 2){
+      rup = true;
+    }
   });
 
 
   ioHook.on("mouseclick", event => {
     console.log(event);
-    // result: {keychar: 'f', keycode: 19, rawcode: 15, type: 'keypress'}
-
-    up = true;
   });
+
+  function handleRecoil(firstCall = false){
+    
+    console.log(`handleRecoil called. First call for automatic weapon: ${firstCall}`);
+
+    mouseMovement = [0,0];
+      mouseMovement = weapon.nextStep(firstCall, !rup);
+      lup = false;
+
+
+      console.log(mouseMovement);
+      console.log(`Moving weapon in step ${weapon.step}`);
+
+      if(!!mouseMovement){
+          console.log(`mouse will move to [${mousePos[0]}, ${mousePos[1]}] + [${mouseMovement[0]} ${mouseMovement[1]}]`);
+          //mouseMovement[0] += event.x;
+          //mouseMovement[1] += event.y;
+          Mouse.sendMouseDelta(mouseMovement[0],mouseMovement[1]);
+      }
+
+      if(weapon.type == "automatic" && !weapon.stop){
+        console.log(`weapon is automatic. calling handlerecoil again in ${weapon.interval} millis`);
+        weaponTimer = setTimeout(handleRecoil, weapon.interval);
+      }
+
+  }
 
   
 //Register and stark hook 
